@@ -1,0 +1,305 @@
+<HTML>
+<HEAD>
+<TITLE>Enabling raspbian machines in QEMU</TITLE>
+</HEAD>
+<BODY>
+<H1>How to emulate a raspbian for arm under QEMU under Linux 64bit PC</H1>
+<H2>Requirements</H2>
+<P>I did this on a Ubuntu 19.04 with QEMU 3.1.0, but I also tested on a couple years old CentOS 7.2 with QEMU 2.0.0. Both are working the same.</P>
+<H2>The steps</H2>
+<P>The following steps describe how to turn a raspbian image into a working machine within a QEMU arm emulation under Linux.</P>
+<TABLE BORDER="1">
+<TR>
+<TH>Step #</TH>
+<TH WIDTH="23%">10 Buster</TH>
+<TH WIDTH="23%">9 Stretch</TH>
+<TH WIDTH="23%">8 Jessie</TH>
+<TH WIDTH="23%">7 Wheezy</TH>
+</TR>
+<TR>
+<TD>1</TD>
+<TD COLSPAN="4">Create a folder for iso images and download image (zipped) and its checksum from <A HREF="http://downloads.raspberrypi.org/raspbian/images">ISO archive</A>.
+<PRE>
+  mkdir iso
+  cd iso
+  wget http://downloads.raspberrypi.org/raspbian/images/raspbian-2018-03-14/2018-03-13-raspbian-stretch.zip
+  wget http://downloads.raspberrypi.org/raspbian/images/raspbian-2018-03-14/2018-03-13-raspbian-stretch.zip.sha256
+</PRE>
+</TD>
+</TR>
+<TR>
+<TD>2</TD>
+<TD COLSPAN="4">Verify checksum:
+<PRE>
+  sha256sum -c 2018-03-13-raspbian-stretch.zip.sha256 
+
+Outputs:
+  2018-03-13-raspbian-stretch.zip: OK
+</PRE>
+And unzip the image:
+<PRE>
+  mkdir ../2018-03-13-stretch
+  cd ../2018-03-13-stretch
+  unzip ../iso/2018-03-13-raspbian-stretch.zip
+</PRE>
+You now have the <CODE>2018-03-13-raspbian-stretch.img</CODE> file.
+</TD>
+</TR>
+<TR>
+<TD>3</TD>
+<TD COLSPAN="4">Check the internal structure of the image.
+<PRE>
+  fdisk -l 2018-03-13-raspbian-stretch.img
+
+Outputs:
+  Disk 2018-03-13-raspbian-stretch.img: 4,6 GiB, 4949278720 bytes, 9666560 sectors
+  Units: sectors of 1 * 512 = 512 bytes
+  Sector size (logical/physical): 512 bytes / 512 bytes
+  I/O size (minimum/optimal): 512 bytes / 512 bytes
+  Disklabel type: dos
+  Disk identifier: 0x15ca46a5
+
+  Device                           Boot Start     End Sectors  Size Id Type
+  2018-03-13-raspbian-stretch.img1       8192   93802   85611 41,8M  c W95 FAT32 (LBA)
+  2018-03-13-raspbian-stretch.img2      98304 9666559 9568256  4,6G 83 Linux
+</PRE>
+Take the sector size (here <B>512</B>) and the second partition start (here <B>98304</B>) and multiply the actual offset of the second partition on the disk: <CODE>512 * 98304 = 50331648</CODE>. Use the result in next step.
+</TD>
+</TR>
+<TR>
+<TD>4</TD>
+<TD COLSPAN="4">Take the result from previous step and mount the partition to a local folder.<BR>
+Note: This must be done as <B>root</B>.
+<PRE>
+  mkdir mnt
+  sudo mount -v -o offset=50331648 -t ext4 2018-03-13-raspbian-stretch.img mnt/
+</PRE>
+</TD>
+</TR>
+<TR>
+<TD>5</TD>
+<TD COLSPAN="4">Next edit few files (again as <B>root</B>):<BR>
+<I>Note: Save changes and exit nano editor by pressing <CODE>Ctrl+X</CODE>, then pressing <CODE>y</CODE> as confirmation and finally <CODE>Enter</CODE> to overwrite file.</I>
+<PRE>
+  sudo nano mnt/etc/ld.so.preload
+</PRE>
+Comment out all lines by putting a <CODE>#</CODE> in front of each line (should be 1 line only) and save changes.
+<HR>
+<PRE>
+  sudo nano mnt/etc/fstab
+</PRE>
+Edit the file so that whatever is in the first column of the last two lines ends up as <CODE>/dev/sda1</CODE> and <CODE>/dev/sda2</CODE>. Like this:
+<TABLE>
+<TR>
+<TH>Original</TH>
+<TH>&nbsp;</TH>
+<TH>Changed</TH>
+<TR>
+<TD>
+<PRE>
+proc            /proc           proc    defaults          0       0
+PARTUUID=15ca46a5-01  /boot           vfat    defaults          0       2
+PARTUUID=15ca46a5-02  /               ext4    defaults,noatime  0       1
+</PRE>
+</TD>
+<TD ROWSPAN="3">becomes</TD>
+<TD ROWSPAN="3">
+<PRE>
+proc            /proc           proc    defaults          0       0
+/dev/sda1       /boot           vfat    defaults          0       2
+/dev/sda2       /               ext4    defaults,noatime  0       1
+</PRE>
+</TD>
+</TR>
+<TR><TD>or (on older releases)</TD></TR>
+<TR>
+<TD>
+<PRE>
+proc            /proc           proc    defaults          0       0
+/dev/mmcblk0p1  /boot           vfat    defaults          0       2
+/dev/mmcblk0p2  /               ext4    defaults,noatime  0       1
+</PRE>
+</TD>
+</TR>
+</TABLE>
+</TD>
+</TR>
+<TR>
+<TD>6</TD>
+<TD COLSPAN="4">Unmount the mounted image (as <B>root</B>).
+<PRE>
+  sudo umount mnt
+</TD>
+</TR>
+<TR>
+<TD>7</TD>
+<TD COLSPAN="4">Finally convert and resize the image.
+<PRE>
+  qemu-img convert -f raw -O qcow2 2018-03-13-raspbian-stretch.img 2018-03-13-raspbian-stretch-qcow2.img
+  qemu-img resize 2018-03-13-raspbian-stretch-qcow2.img +25G
+</PRE>
+Observe that the first command creates a new file which is smaller than the original one. That is because the original file stores the disk "as is" byte by byte, while the new is qemu's format that only stores real data, not free space. Hence it'll only grow when needed, occupying less space.<BR>
+You may now delete the original image <CODE>2018-03-13-raspbian-stretch.img</CODE> if you want, it is no longer required.
+</TD>
+</TR>
+<TR>
+<TD ROWSPAN="2">8</TD>
+<TD COLSPAN="4">We need to prepare the kernel (and the dtb file), lets download from <A HREF="https://github.com/dhruvvyas90/qemu-rpi-kernel">this page</A>. For each file use a command like this:
+<PRE>
+  wget https://github.com/dhruvvyas90/qemu-rpi-kernel/raw/master/thefilename -O ../iso/thefilename
+</PRE>
+Where filenames differ per release...
+</TD>
+</TR>
+<TR>
+<TD>
+<PRE>
+  kernel-qemu-4.14.79-stretch
+  versatile-pb.dtb
+</PRE>
+</TD>
+<TD>
+<PRE>
+  kernel-qemu-4.14.79-stretch
+  versatile-pb.dtb
+</PRE>
+</TD>
+<TD>
+<PRE>
+  kernel-qemu-4.4.34-jessie
+</PRE>
+</TD>
+<TD>
+<PRE>
+  kernel-qemu-3.10.25-wheezy
+</PRE>
+</TD>
+</TR>
+<TR>
+<TD>9</TD>
+<TD COLSPAN="4">This next step brings us finally into the raspberry run in QEMU.
+<PRE>
+  sudo qemu-system-arm \
+    -cpu arm1176 -M versatilepb -m 256 \
+    -kernel ../iso/kernel-qemu-4.14.79-stretch -dtb ../iso/versatile-pb.dtb \
+    -net tap -net nic,macaddr=52:54:00:09:34:56 -serial stdio -no-reboot \
+    -append "root=/dev/sda2 panic=1 rootfstype=ext4 rw" \
+    -hda 2018-03-13-raspbian-stretch-qcow2.img
+</PRE>
+where you (per-release) replace the correct kernel file, add the -dtb only where applicable, assign a unique valid macaddr and of course use the correct disk image.</BR>
+Note: With the <CODE>-net tap</CODE> to receive a valid IP address, you need to install the accompanying <CODE>ifup-nat.sh</CODE> and <CODE>ifdown-nat.sh</CODE> in place of <CODE>/etc/qemu-ifup</CODE> and <CODE>/etc/qemu-ifdown</CODE>.
+You may use <CODE>sudo ifsetup-nat.sh</CODE> to do it, though you should first backup the original scripts somewhere.<BR>
+Alternatively you may use the <CODE>-net user</CODE> instead.
+</TD>
+</TR>
+<TR>
+<TD ROWSPAN="2">10</TD>
+<TD COLSPAN="3">After the system boots to GUI, open a "Terminal" and run <CODE>sudo raspi-config</CODE>.</TD>
+<TD>The system first boots to a text console with <CODE>raspi-config</CODE>.</TD>
+</TR>
+<TR>
+<TD COLSPAN="4">Under <I>Boot Options</I> you can change if boot to console/GUI.<BR>
+Under <I>Localisation Options</I> you can change the regional settings. By default it is set to (for most people unusual) en_GB...<BR>
+And so on... (You should also enable SSH for remote connection and change the default password.) <BR>
+When you're done, do <CODE>Finish</CODE> on the main screen.
+</TD>
+</TR>
+<TR>
+<TD>11</TD>
+<TD COLSPAN="4">
+Unfortunately due to step 5. it is not possible to use the <I>Expand filesystem</I> of <CODE>raspi-config</CODE>, but there is a workaround.
+Instead run
+<PRE>
+  sudo fdisk /dev/sda
+</PRE>
+Use command <CODE>p</CODE> to view current situation:
+<PRE>
+Command (m for help): p
+Disk /dev/sda: 29,6 GiB, 31792824320 bytes, 62095360 sectors
+Units: sectors of 1 * 512 = 512 bytes
+Sector size (logical/physical): 512 bytes / 512 bytes
+I/O size (minimum/optimal): 512 bytes / 512 bytes
+Disklabel type: dos
+Disk identifier: 0x15ca46a5
+
+Device     Boot Start     End Sectors  Size Id Type
+/dev/sda1        8192   93802   85611 41,8M  c W95 FAT32 (LBA)
+/dev/sda2       98304 9666559 9568256  4,6G 83 Linux
+</PRE>
+Next delete sda2 (won't delete data, just the entry in partition table) using <CODE>d</CODE> and selecting <CODE>2</CODE>.
+Then use <CODE>n</CODE> to create new partition, <CODE>p</CODE> for primary, <CODE>2</CODE> to re-create the second one. Now use the start of the original partition that we printed before (in our case <B>98304</B>)
+for the start of the new partition and the offered maximum for the end of the partition.
+Finally, if prompted, choose to NOT remove the ext4 signature.
+<PRE>
+Command (m for help): n
+Partition type
+   p   primary (1 primary, 0 extended, 3 free)
+   e   extended (container for logical partitions)
+Select (default p):
+
+Using default response p.
+Partition number (2-4, default 2): 2
+First sector (2048-62095359, default 2048): 98304
+Last sector, +sectors or +size{K,M,G,T,P} (98304-62095359, default 62095359):
+
+Created a new partition 2 of type 'Linux' and of size 29,6 GiB.
+Partition #2 contains a ext4 signature.
+
+Do you want to remove the signature? [Y]es/[N]o: n
+</PRE>
+You can review changes by <CODE>p</CODE> again.<BR>
+To finish either write the changes by <CODE>w</CODE> or discard the changes (to start again) by <CODE>q</CODE>.
+<HR>
+If you chose to write the changes, you have to ask the system to reread the partition table by
+<PRE>
+  sudo partprobe
+</PRE>
+If this fails then you MUST reboot first by <CODE>sudo reboot</CODE>! Otherwise you can continue without reboot.<BR>
+Then you can resize the ext4 filesystem on the resized partition by
+<PRE>
+  sudo resize2fs /dev/sda2
+</PRE>
+You can check that you have now way more free space by doing
+<PRE>
+  df -h
+
+Outputs:
+  Filesystem      Size  Used Avail Use% Mounted on
+  /dev/root        30G  4,1G   24G  15% /
+  ...
+<PRE>
+</TD>
+</TR>
+<TR>
+<TD>12</TD>
+<TD COLSPAN="4">You should finalize the preparation of the machine by rebooting. Eg. the default locales changes are still pending and you may receive weird behavior until you reboot.
+<PRE>
+  sudo reboot
+</PRE>
+</TD>
+</TR>
+</TABLE>
+<H2>References</H2>
+<UL>
+<LI>Raspberry images archive - <A HREF="http://downloads.raspberrypi.org/raspbian/images/">http://downloads.raspberrypi.org/raspbian/images/</A></LI>
+<LI>Kernel images ... - <A HREF="https://github.com/dhruvvyas90/qemu-rpi-kernel">https://github.com/dhruvvyas90/qemu-rpi-kernel</A></LI>
+<LI>Other howtos (several ideas in this howto come from these; credit to the respective authors)
+<OL>
+<LI><A HREF="https://www.pcsteps.com/1199-raspberry-pi-emulation-for-windows-qemu">https://www.pcsteps.com/1199-raspberry-pi-emulation-for-windows-qemu</A></LI>
+<LI><A HREF="https://azeria-labs.com/emulate-raspberry-pi-with-qemu">https://azeria-labs.com/emulate-raspberry-pi-with-qemu</A></LI>
+<LI><A HREF="https://blog.agchapman.com/using-qemu-to-emulate-a-raspberry-pi">https://blog.agchapman.com/using-qemu-to-emulate-a-raspberry-pi</A></LI>
+</OL>
+</LI>
+<LI>The page with the original qemu-ifup script (as referenced in step 9) - <A HREF="https://en.wikibooks.org/wiki/QEMU/Networking">https://en.wikibooks.org/wiki/QEMU/Networking</A><BR>
+Further resources that helped regarding network bridges:
+<UL>
+<LI><A HREF="https://unix.stackexchange.com/questions/255484/how-can-i-bridge-two-interfaces-with-ip-iproute2">https://unix.stackexchange.com/questions/255484/how-can-i-bridge-two-interfaces-with-ip-iproute2</A></LI>
+<LI><A HREF="https://baturin.org/docs/iproute2/#Create%20a%20bridge%20interface"</A>https://baturin.org/docs/iproute2/#Create%20a%20bridge%20interface</A></LI>
+<LI>man pages: ip(8), brctl(8), iptables(8)</LI>
+</UL>
+</LI>
+</UL>
+<H2>License</H2>
+<P>&copy; Radek Slabý 2019, <A HREF="https://creativecommons.org/licenses/by-sa/3.0/">CC BY-SA</A>.</P>
+</BODY>
+</HTML>
