@@ -1,18 +1,24 @@
 #!/bin/sh
 
-# Author: Radek Slaby, jakjinak (https://github.com/jakjinak)
-# This work is licensed under the terms of the GNU GPL, version 2.
-
-# Based on original script downloaded from https://wiki.qemu.org/Documentation/Networking/NAT credited as:
-#  >  Copyright IBM, Corp. 2010  
+# The original work's license disclaimer:
+#  #  Copyright IBM, Corp. 2010
+#  #
+#  #  Authors:
+#  #   Anthony Liguori <aliguori@us.ibm.com>
+#  #
+#  #  This work is licensed under the terms of the GNU GPL, version 2.  See
+#  #  the COPYING file in the top-level directory.
+# Please note that the original work was retrieved from the following page:
+#   https://wiki.qemu.org/Documentation/Networking/NAT
+# There was no COPYING in top-level directory.
 #
-#  >  Authors:
-#  >   Anthony Liguori <aliguori@us.ibm.com>
-#
-#  >  This work is licensed under the terms of the GNU GPL, version 2.  See
-#  >  the COPYING file in the top-level directory.
-
-# The main difference is that ifconfig (which is deprecated) has been replaced with ip.
+# License disclaimer regarding the changes made:
+#  # (C) 2019 Radek Slaby, jakjinak (https://github.com/jakjinak)
+#  # This work (my changes made on top of the original work) is licensed under
+#  # the terms of the GNU GPL, version 2. See LICENSE.GPLv2 or this page:
+#  # https://www.gnu.org/licenses/old-licenses/gpl-2.0.html.en
+# The main functional difference is that ifconfig (which is deprecated)
+# has been replaced with ip.
 
 ######################################
 # configuration section
