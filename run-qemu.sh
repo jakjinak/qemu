@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 
+# (C) 2019 Radek Slaby, jakjinak (https://github.com/jakjinak)
+# This work is licensed under the terms of the MIT license, see LICENSE.MIT.
+
 [[ "$1" && -d "$1" ]] || { echo "Specify a folder with a virtual machine as the first parameter." >&2 ; exit 1 ; }
 cd "$1" || { echo "Cannot switch to '$1'." >&2 ; exit 1 ; }
 
