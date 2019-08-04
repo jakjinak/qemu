@@ -1,0 +1,218 @@
+<HTML>
+<HEAD>
+<TITLE>How to run a raspbian machine image chrooted using QEMU</TITLE>
+</HEAD>
+<BODY>
+<H1>How to run a raspbian machine image chrooted using QEMU under Linux 64bit PC</H1>
+<H2>Requirements</H2>
+<P>I did this on a Ubuntu 19.04 with QEMU 3.1.0.</P>
+<P>Needs a raspbian image prepared using the <A HREF="enabling.html">enabling.html</A> howto.</P>
+<P>I recommend using the attached scripts: <CODE>nbd_mount.sh</CODE> / <CODE>nbd_umount.sh</CODE> (for mounting the image), resp. <CODE>static_chroot.sh</CODE> (for the chrooted emulation).</P>
+<H2>The steps</H2>
+<P>The following steps describe how to mount a raspbian image into the filesystem and how to switch to it so that the root is changed to the root of the image and the arm programs are interpreted by QEMU directly in the host.</P>
+<P>Note: Most of the steps require to be run as root, so either switch to root or use sudo.</P>
+<TABLE BORDER="1">
+<TR>
+<TH>Step #</TH>
+<TH WIDTH="88%">Description</TH>
+</TR>
+<TR>
+<TD>0</TD>
+<TD>Take a raspbian image prepared in <A HREF="enabling.html">enabling.html</A> howto.<BR>
+Note that as part of that howto the original image was converted, expanded and changes to certain files were done.<BR>
+Make sure that noone is using that image!<BR>
+As an example we take eg. <CODE>2019-07-10-raspbian-buster-qcow2.img</CODE>.
+</TD>
+</TR>
+<TR>
+<TD>1</TD>
+<TD>Verify that qemu-nbd is loaded in kernel:
+<PRE>
+  lsmod | grep nbd
+</PRE>
+If the output is empty, do the following to load the kernel module. See its <A HREF="https://www.kernel.org/doc/Documentation/blockdev/nbd.txt">description</A>.
+<PRE>
+  modprobe nbd max_part=8 nbds_max=4
+</PRE>
+Check that it worked, outputs should be non-empty>
+<PRE>
+  lsmod | grep nbd
+
+Outputs (something like):
+  nbd                    40960  0
+</PRE>
+and
+<PRE>
+  ls -1 /dev/nbd*
+
+Outputs:
+  /dev/nbd0
+  /dev/nbd1
+  /dev/nbd2
+  /dev/nbd3
+</PRE>
+</TD>
+</TR>
+<TR>
+<TD>2</TD>
+<TD>Create a folder to where you want to mount the image:
+<PRE>
+  mkdir buster
+</PRE>
+</TR>
+<TR>
+<TD>3</TD>
+<TD>Use the <CODE>nbd_mount.sh</CODE> to mount the image (first argument is the image, second the directory), you'll need to enter input as asked, ie:
+<OL>
+<LI>Select one of the devices created in previous step, in our example <CODE>/dev/nbd1</CODE></LI>
+<LI>Confirm the device connect</LI>
+<LI>Enter the partition in the image that contains the root - it'll be the one of type "Linux", in our case <CODE>/dev/nbd1p2</CODE></LI>
+<LI>Enter the other partition that contains boot - that is the FAT one, in our case <CODE>/dev/nbd1p1</CODE></LI>
+</OL>
+<PRE>
+  ./nbd_mount.sh 2019-07-10-raspbian-buster-qcow2.img buster/
+
+Outputs (and containing example user input):
+  Found the following nbd devices (red appear to be in use):
+  /dev/nbd0
+  /dev/nbd1
+  /dev/nbd2
+  /dev/nbd3
+  Pick a free one to mount the image: /dev/nbd1
+  About to connect '/home/tester/2019-07-10-raspbian-buster-qcow2.img' via '/dev/nbd1'. Continue=ENTER, cancel=Ctrl+C.
+
+  /home/tester/2019-07-10-raspbian-buster-qcow2.img is now at /dev/nbd1 with the following content:
+  Disk /dev/nbd1: 28,5 GiB, 30622613504 bytes, 59809792 sectors
+  Units: sectors of 1 * 512 = 512 bytes
+  Sector size (logical/physical): 512 bytes / 512 bytes
+  I/O size (minimum/optimal): 512 bytes / 512 bytes
+  Disklabel type: dos
+  Disk identifier: 0x3b18e43a
+
+  Device      Boot  Start      End  Sectors  Size Id Type
+  /dev/nbd1p1        8192   532480   524289  256M  c W95 FAT32 (LBA)
+  /dev/nbd1p2      540672 59809791 59269120 28,3G 83 Linux
+  Choose which partition from the above (/dev/nbd1p...) shall be mounted into /home/tester/buster: /dev/nbd1p2
+  /dev/nbd1p2 is now in /home/tester/buster
+  Choose which partition from the above (/dev/nbd1p...) shall be mounted into /home/tester/buster/boot; keep empty to skip: /dev/nbd1p1
+  /dev/nbd1p1 is now in /home/tester/buster/boot
+</PRE>
+</TD>
+</TR>
+<TR>
+<TD>4</TD>
+<TD>Now that the image is mounted we chroot into it using the other script <CODE>static_chroot.sh</CODE>:<BR>
+<PRE>
+  ./static_chroot.sh buster/ pi
+
+Outputs:
+   interpreter = /usr/bin/qemu-arm-static
+  Remounting /dev as /home/tester/buster/dev
+  Remounting /sys as /home/tester/buster/sys
+  Remounting /proc as /home/tester/buster/proc
+  Remounting /dev/pts as /home/tester/buster/dev/pts
+  chrooting to /home/tester/buster and running bin/su - pi
+</PRE>
+We could have ommited the <CODE>pi</CODE> which stands for the user we want to be in the "target" system, if we do not provide the user (or provide an empty one), we'll be root.
+</TD>
+</TR>
+<TR>
+<TD>5</TD>
+<TD>Now inside that chrooted simulation we see the filesystem as if we were running the real pi and the ARM programs are being interpreted live using <CODE>qemu-arm-static</CODE>.<BR>
+We can check the situation by eg.
+<PRE>
+  uname -m
+
+Outputs:
+  armv7l
+</PRE>
+<HR>
+Or we can cross compile a program in the host (in another terminal):
+<PRE>
+  cat > hello.cpp
+#include <iostream>
+int main() {
+  std::cout << "Hello ARM world\n";
+}
+</PRE>
+then use cross-compiler
+<PRE>
+  arm-linux-gnueabihf-g++ hello.cpp -o hello
+</PRE>
+copy to the chrooted location
+<PRE>
+  cp hello buster/home/pi/
+</PRE>
+and run it there
+<PRE>
+  ./hello
+
+Outputs:
+  Hello ARM world
+</PRE>
+To make sure it really is an ARM binary:
+<PRE>
+  file hello
+
+Outputs:
+  hello: ELF 32-bit LSB shared object, ARM, EABI5 version 1 (SYSV), dynamically linked, interpreter /lib/ld-linux-armhf.so.3, BuildID[sha1]=ed8c9774f6b3e9034ec54cf30e378526f997e2a2, for GNU/Linux 3.2.0, not stripped
+</PRE>
+</TD>
+</TR>
+<TR>
+<TD>6</TD>
+<TD>After we're done playing with the raspberry we simply <CODE>exit</CODE> (or press Ctrl+D), the <CODE>static_chroot.sh</CODE> finishes by cleaning up.
+<PRE>
+Outputs:
+  umount /home/tester/buster/dev/pts; exits 0
+  umount /home/tester/buster/proc; exits 0
+  umount /home/tester/buster/sys; exits 0
+  umount /home/tester/buster/dev; exits 0
+</PRE>
+</TD>
+</TR>
+<TR>
+<TD>7</TD>
+<TD>After we no longer want to use the mounted image, we unmount it by running the <CODE>nbd_umount.sh</CODE> (without arguments).
+We need to select which device we want to unmount (= the one we mounted in the beginning) and confirm all the unmounts.<BR>
+Make sure noone uses the mounts anymore!
+<PRE>
+  ./nbd_umount.sh
+
+Outputs (and containing example user input):
+  Found the following nbd devices (yellow appear to be in use):
+  /dev/nbd0
+  /dev/nbd1 (2 partitions: /dev/nbd1p1 /dev/nbd1p2 
+  /dev/nbd2
+  /dev/nbd3
+  Pick one to unmount (make sure noone uses them anymore): /dev/nbd1
+  About to disconnect '/dev/nbd1' and all its partitions. Continue=ENTER, cancel=Ctrl+C.
+  /dev/nbd1p2 on /home/tester/buster type ext4 (rw,relatime)
+  /dev/nbd1p1 on /home/tester/buster/boot type vfat (rw,relatime,fmask=0022,dmask=0022,codepage=437,iocharset=iso8859-1,shortname=mixed,errors=remount-ro)
+
+  About to unmount '/home/tester/buster/boot'? Continue=ENTER, cancel=Ctrl+C.
+
+  About to unmount '/home/tester/buster'? Continue=ENTER, cancel=Ctrl+C.
+
+  /dev/nbd1 disconnected
+</PRE>
+</TD>
+</TR>
+<TR>
+<TD>8</TD>
+<TD>If we really want we can remove the kernel module again.
+<PRE>
+  rmmod nbd
+</PRE>
+Now there is again nothing in <CODE>lsmod | grep nbd</CODE>, or in <CODE>ls /dev/nbd*</CODE>.
+</TR>
+</TABLE>
+<H2>References</H2>
+<UL>
+<LI>qemu-user-static - <A HREF="https://wiki.debian.org/RaspberryPi/qemu-user-static">https://wiki.debian.org/RaspberryPi/qemu-user-static</A></LI>
+<LI>Mounting qcow2 using qemu-nbd - <A HREF="http://ask.xmodulo.com/mount-qcow2-disk-image-linux.html">http://ask.xmodulo.com/mount-qcow2-disk-image-linux.html</A></LI>
+</UL>
+<H2>License</H2>
+<P>&copy; Radek Slabý 2019, <A HREF="https://creativecommons.org/licenses/by-sa/3.0/">CC BY-SA</A>.</P>
+</BODY>
+</HTML>
